@@ -328,7 +328,8 @@ def save_numerics(
 
 def save_notes(notes, outPath=None, notes_h5_filename=None):
     notes_id_cols = list(set(ID_COLS).intersection(notes.columns))# + ['row_id'] TODO: what is row_id?
-    notes_metadata_cols = ['chartdate', 'charttime', 'category', 'description']
+    # notes_metadata_cols = ['chartdate', 'charttime', 'category', 'description']
+    notes_metadata_cols = ['chartdate', 'charttime', 'category']
 
 
     notes.set_index(notes_id_cols + notes_metadata_cols, inplace=True)
@@ -435,13 +436,13 @@ def save_outcome(
                                   for timediff in icustay_timediff_tmp], index=data.index.values)
     query = """
     select i.subject_id, i.hadm_id, v.icustay_id, v.ventnum, v.starttime, v.endtime
-    FROM icustay_detail i
-    INNER JOIN ventilation_durations v ON i.icustay_id = v.icustay_id
-    where v.icustay_id in ({icuids})
-    and v.starttime between intime and outtime
-    and v.endtime between intime and outtime;
+    FROM mimiciv_derived.icustay_detail i
+    INNER JOIN mimiciv_derived.ventilation_durations v ON i.stay_id = v.icustay_id
+    where
+    v.icustay_id in ({icuids}) and
+    v.starttime between i.icu_intime and i.icu_outtime
+    and v.endtime between i.icu_intime and i.icu_outtime
     """
-
     old_template_vars = querier.exclusion_criteria_template_vars
     querier.exclusion_criteria_template_vars = dict(icuids=','.join(icuids_to_keep))
 
@@ -499,11 +500,11 @@ def save_outcome(
         # TOTAL VASOPRESSOR DATA
         query = """
         select i.subject_id, i.hadm_id, v.icustay_id, v.vasonum, v.starttime, v.endtime
-        FROM icustay_detail i
-        INNER JOIN {table} v ON i.icustay_id = v.icustay_id
+        FROM mimiciv_derived.icustay_detail i
+        INNER JOIN mimiciv_derived.{table} v ON i.stay_id = v.icustay_id
         where v.icustay_id in ({icuids})
-        and v.starttime between intime and outtime
-        and v.endtime between intime and outtime;
+        and v.starttime between i.icu_intime and i.icu_outtime
+        and v.endtime between i.icu_intime and i.icu_outtime;
         """
         new_data = querier.query(query_string=query, extra_template_vars=dict(table=t))
         new_data = continuous_outcome_processing(new_data, data, icustay_timediff)
@@ -535,21 +536,21 @@ def save_outcome(
     for task in tasks:
         if task=='nivdurations':
             query = """
-            select i.subject_id, i.hadm_id, v.icustay_id, v.starttime, v.endtime
-            FROM icustay_detail i
-            INNER JOIN {table} v ON i.icustay_id = v.icustay_id
-            where v.icustay_id in ({icuids})
-            and v.starttime between intime and outtime
-            and v.endtime between intime and outtime;
+            select i.subject_id, i.hadm_id, v.stay_id as icustay_id, v.starttime, v.endtime
+            FROM mimiciv_derived.icustay_detail i
+            INNER JOIN mimiciv_derived.{table} v ON i.stay_id = v.stay_id
+            where v.stay_id in ({icuids})
+            and v.starttime between i.icu_intime and i.icu_outtime
+            and v.endtime between i.icu_intime and i.icu_outtime;
             """
         else:
             query = """
-            select i.subject_id, i.hadm_id, v.icustay_id, v.charttime AS starttime, 
+            select i.subject_id, i.hadm_id, v.stay_id as icustay_id, v.charttime AS starttime, 
                    v.charttime AS endtime
-            FROM icustay_detail i
-            INNER JOIN {table} v ON i.icustay_id = v.icustay_id
-            where v.icustay_id in ({icuids})
-            and v.charttime between intime and outtime
+            FROM mimiciv_derived.icustay_detail i
+            INNER JOIN mimiciv_derived.{table} v ON i.stay_id = v.stay_id
+            where v.stay_id in ({icuids})
+            and v.charttime between i.icu_intime and i.icu_outtime
             """
 
         new_data = querier.query(query_string=query, extra_template_vars=dict(table=task))
@@ -698,14 +699,14 @@ if __name__ == '__main__':
     print("Running!")
     # Construct the argument parse and parse the arguments
     ap = argparse.ArgumentParser()
-    ap.add_argument('--out_path', type=str, default= '/scratch/{}/phys_acuity_modelling/data'.format(os.environ['USER']),
+    ap.add_argument('--out_path', type=str, default= '/scratch/{}/phys_acuity_modelling/data'.format(os.environ['USERNAME']),
                     help='Enter the path you want the output')
     ap.add_argument('--resource_path',
         type=str,
-        default=os.path.expandvars("$MIMIC_EXTRACT_CODE_DIR/resources/"))
+        default=os.path.expandvars("./resources/"))
     ap.add_argument('--queries_path',
         type=str,
-        default=os.path.expandvars("$MIMIC_EXTRACT_CODE_DIR/SQL_Queries/"))
+        default=os.path.expandvars("./SQL_Queries/"))
     ap.add_argument('--extract_pop', type=int, default=1,
                     help='Whether or not to extract population data: 0 - no extraction, ' +
                     '1 - extract if not present in the data directory, 2 - extract even if there is data')
@@ -731,15 +732,15 @@ if __name__ == '__main__':
     ap.add_argument('--plot_hist', type=int, default=1,
                     help='Whether to plot the histograms of the data')
 
-    ap.add_argument('--psql_host', type=str, default=None,
+    ap.add_argument('--psql_host', type=str, default='localhost',
                     help='Postgres host. Try "/var/run/postgresql/" for Unix domain socket errors.')
-    ap.add_argument('--psql_dbname', type=str, default='mimic',
+    ap.add_argument('--psql_dbname', type=str, default='mimiciv',
                     help='Postgres database name.')
-    ap.add_argument('--psql_schema_name', type=str, default='public,mimiciii',
+    ap.add_argument('--psql_schema_name', type=str, default='mimiciv_derived, mimiciv_hosp, mimiciv_icu, mimiciv_ed',
                     help='Postgres database name.')
-    ap.add_argument('--psql_user', type=str, default=None,
+    ap.add_argument('--psql_user', type=str, default='postgres',
                     help='Postgres user.')
-    ap.add_argument('--psql_password', type=str, default=None,
+    ap.add_argument('--psql_password', type=str, default='root',
                     help='Postgres password.')
     ap.add_argument('--no_group_by_level2', action='store_false', dest='group_by_level2', default=True,
                     help="Don't group by level2.")
@@ -761,6 +762,7 @@ if __name__ == '__main__':
     #############
     # Parse args
     args = vars(ap.parse_args())
+    args['out_path'] = 'D:/data/MIMICIV_EXtract/'.format(os.environ['USERNAME'])
     for key in sorted(args.keys()):
         print(key, args[key])
 
@@ -839,6 +841,8 @@ if __name__ == '__main__':
 
         print("Storing data @ %s" % os.path.join(outPath, static_filename))
         data = save_pop(data_df, outPath, static_filename, args['pop_size'], static_data_schema)
+        # testing
+        data = data[:1000]
 
     if data is None: print('SKIPPED static_data')
     else:
@@ -881,24 +885,23 @@ if __name__ == '__main__':
         cur.execute('SET search_path to ' + schema_name)
         query = \
         """
-        select c.subject_id, i.hadm_id, c.icustay_id, c.charttime, c.itemid, c.value, valueuom
-        FROM icustay_detail i
-        INNER JOIN chartevents c ON i.icustay_id = c.icustay_id
-        where c.icustay_id in ({icuids})
-          and c.itemid in ({chitem})
-          and c.charttime between intime and outtime
-          and c.error is distinct from 1
-          and c.valuenum is not null
+        select c.subject_id, i.hadm_id, c.stay_id as icustay_id, c.charttime, c.itemid, c.value, valueuom
+        FROM mimiciv_derived.icustay_detail i
+        INNER JOIN mimiciv_icu.chartevents c ON i.stay_id = c.stay_id
+        where c.stay_id in ({icuids})
+        and c.itemid in ({chitem})
+        and c.charttime between i.icu_intime and i.icu_outtime
+        and c.valuenum is not null
 
         UNION ALL
 
-        select distinct i.subject_id, i.hadm_id, i.icustay_id, l.charttime, l.itemid, l.value, valueuom
-        FROM icustay_detail i
-        INNER JOIN labevents l ON i.hadm_id = l.hadm_id
-        where i.icustay_id in ({icuids})
-          and l.itemid in ({lbitem})
-          and l.charttime between (intime - interval '6' hour) and outtime
-          and l.valuenum > 0 -- lab values cannot be 0 and cannot be negative
+        select distinct i.subject_id, i.hadm_id, i.stay_id as icustay_id, l.charttime, l.itemid, l.value, valueuom
+        FROM mimiciv_derived.icustay_detail i
+        INNER JOIN mimiciv_hosp.labevents l ON i.hadm_id = l.hadm_id
+        where i.stay_id in ({icuids})
+        and l.itemid in ({lbitem})
+        and l.charttime between (i.icu_intime - interval '6' hour) and i.icu_outtime
+        and l.valuenum > 0 -- lab values cannot be 0 and cannot be negative
         ;
         """.format(icuids=','.join(icuids_to_keep), chitem=','.join(chartitems_to_keep), lbitem=','.join(labitems_to_keep))
         X = pd.read_sql_query(query, con)
@@ -907,8 +910,8 @@ if __name__ == '__main__':
 
         query_d_items = \
         """
-        SELECT itemid, label, dbsource, linksto, category, unitname
-        FROM d_items
+        SELECT itemid, label, linksto, category, unitname
+        FROM mimiciv_icu.d_items
         WHERE itemid in ({itemids})
         ;
         """.format(itemids=','.join(itemids))
@@ -942,17 +945,17 @@ if __name__ == '__main__':
 
     #############
     # If there is notes extraction
-    N = None
-    if ( (args['extract_notes'] == 0) or (args['extract_codes'] == 1) ) and isfile(os.path.join(outPath, notes_hd5_filename)):
-        print("Reloading Notes.")
-        N = pd.read_hdf(os.path.join(outPath, notes_hd5_filename))
-    elif ( (args['extract_notes'] == 1) and (not isfile(os.path.join(outPath, notes_hd5_filename))) ) or (args['extract_notes'] == 2):
-        print("Saving notes...")
-        notes = querier.query(query_file=NOTES_QUERY_PATH)
-        N = save_notes(notes, outPath, notes_hd5_filename)
+    # N = None
+    # if ( (args['extract_notes'] == 0) or (args['extract_codes'] == 1) ) and isfile(os.path.join(outPath, notes_hd5_filename)):
+    #     print("Reloading Notes.")
+    #     N = pd.read_hdf(os.path.join(outPath, notes_hd5_filename))
+    # elif ( (args['extract_notes'] == 1) and (not isfile(os.path.join(outPath, notes_hd5_filename))) ) or (args['extract_notes'] == 2):
+    #     print("Saving notes...")
+    #     notes = querier.query(query_file=NOTES_QUERY_PATH)
+    #     N = save_notes(notes, outPath, notes_hd5_filename)
 
-    if N is None: print("SKIPPED notes_data")
-    else:         print("LOADED notes_data")
+    # if N is None: print("SKIPPED notes_data")
+    # else:         print("LOADED notes_data")
 
     #############
     # If there is outcome extraction
@@ -971,7 +974,7 @@ if __name__ == '__main__':
     if X is not None: print("Numerics", X.shape, X.index.names, X.columns.names)
     if Y is not None: print("Outcomes", Y.shape, Y.index.names, Y.columns.names, Y.columns)
     if C is not None: print("Codes", C.shape, C.index.names, C.columns.names)
-    if N is not None: print("Notes", N.shape, N.index.names, N.columns.names)
+    # if N is not None: print("Notes", N.shape, N.index.names, N.columns.names)
 
     # TODO(mmd): Do we want to align N like the others? Seems maybe wrong?
 

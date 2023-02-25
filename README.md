@@ -14,6 +14,40 @@ navigate to `utils`
 
 `psql -U postgres -d mimiciv -f ccs_dx.sql`.
 
+`psql -U postgres -d mimiciv -f ventilation_classification.sql`.
+
+`psql -U postgres -d mimiciv -f ventilation_durations.sql`.
+
+`psql -U postgres -d mimiciv -f vasopressor_durations.sql`.
+
+`psql -U postgres -d mimiciv -f adenosine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f dobutamine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f dopamine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f epinephrine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f isuprel_durations.sql`.
+
+`psql -U postgres -d mimiciv -f milrinone_durations.sql`.
+
+`psql -U postgres -d mimiciv -f norepinephrine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f phenylephrine_durations.sql`.
+
+`psql -U postgres -d mimiciv -f vasopressin_durations.sql`.
+
+
+
+
+
+
+
+
+
+
+
 # Note
 
 In MIMICIV, icustay_id is replaced by stay_id. Therefore, in order to reduce the conflict in MIMIC_Extract, stay_id have better to rename as icustay_id  after the query including stay_id
